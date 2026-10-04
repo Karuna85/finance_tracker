@@ -1,5 +1,6 @@
 import type { FinanceData } from '../types/finance';
 import { supabase, type Json } from './supabase';
+import { normalizeFinanceData } from '../components/finance';
 
 export interface CloudFinanceRecord {
   data: FinanceData;
@@ -35,7 +36,7 @@ export async function loadCloudFinanceData(userId: string): Promise<CloudFinance
   if (!isFinanceData(data.data)) throw new Error('The saved cloud finance data has an unsupported format.');
 
   return {
-    data: data.data,
+    data: normalizeFinanceData(data.data),
     localImportCompletedAt: data.local_import_completed_at,
   };
 }

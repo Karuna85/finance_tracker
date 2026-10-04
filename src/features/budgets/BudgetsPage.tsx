@@ -1,25 +1,33 @@
 import { useState, type FormEvent } from 'react';
 import { Modal } from '../../components/Modal';
-import { currentMonthKey, formatMoney, monthKey, monthLabel } from '../../components/finance';
+import { convertCurrency, currencyOptions, currentMonthKey, formatMoney, monthKey, monthLabel } from '../../components/finance';
+import type { ExchangeRates } from '../../services/exchangeRates';
 import type { Budget, Transaction } from '../../types/finance';
 
 interface Props {
   budgets: Budget[];
   transactions: Transaction[];
   currency: string;
+  rates: ExchangeRates;
   onSave: (budget: Omit<Budget, 'id'> & { id?: string }) => void;
   onDelete: (id: string) => void;
 }
 
 const budgetCategories = ['Bills', 'Dining', 'Education', 'Entertainment', 'Groceries', 'Healthcare', 'Housing', 'Shopping', 'Transport', 'Travel', 'Utilities'];
 
-export function BudgetsPage({ budgets, transactions, currency, onSave, onDelete }: Props) {
+export function BudgetsPage({ budgets, transactions, currency, rates, onSave, onDelete }: Props) {
   const [editing, setEditing] = useState<Budget | null | undefined>(undefined);
   const [categoryError, setCategoryError] = useState('');
   const thisMonth = currentMonthKey();
-  const spentFor = (category: string) => transactions
-    .filter((item) => item.type === 'expense' && item.category === category && monthKey(item.date) === thisMonth)
-    .reduce((sum, item) => sum + item.amount, 0);
+  const spentFor = (category: string, budgetCurrency: string) => {
+    let total = 0;
+    for (const transaction of transactions.filter((item) => item.type === 'expense' && item.category === category && monthKey(item.date) === thisMonth)) {
+      const converted = convertCurrency(transaction.amount, transaction.currency, budgetCurrency, rates);
+      if (converted === null) return null;
+      total += converted;
+    }
+    return total;
+  };
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -33,7 +41,7 @@ export function BudgetsPage({ budgets, transactions, currency, onSave, onDelete 
       return;
     }
     setCategoryError('');
-    onSave({ ...(editing?.id ?? existing?.id ? { id: editing?.id ?? existing?.id } : {}), category, limit });
+    onSave({ ...(editing?.id ?? existing?.id ? { id: editing?.id ?? existing?.id } : {}), category, limit, currency: String(form.get('currency')) });
     setEditing(undefined);
   }
 
@@ -44,15 +52,18 @@ export function BudgetsPage({ budgets, transactions, currency, onSave, onDelete 
     </div>
     {budgets.length ? <section className="budget-card-grid">
       {budgets.map((budget) => {
-        const spent = spentFor(budget.category);
-        const remaining = budget.limit - spent;
-        const percentage = (spent / budget.limit) * 100;
+        const spent = spentFor(budget.category, budget.currency);
+        const remaining = spent === null ? null : budget.limit - spent;
+        const displaySpent = spent === null ? null : convertCurrency(spent, budget.currency, currency, rates);
+        const displayLimit = convertCurrency(budget.limit, budget.currency, currency, rates);
+        const displayRemaining = remaining === null ? null : convertCurrency(remaining, budget.currency, currency, rates);
+        const percentage = spent === null ? 0 : (spent / budget.limit) * 100;
         const state = percentage >= 100 ? 'over' : percentage >= 80 ? 'near' : 'good';
         return <article className="panel budget-card" key={budget.id}>
           <div className="budget-card-heading"><div><span className={`budget-dot ${state}`} /><h2>{budget.category}</h2></div><div className="row-actions"><button className="icon-button" title="Edit budget" aria-label={`Edit ${budget.category} budget`} onClick={() => setEditing(budget)}>✎</button><button className="icon-button delete-action" title="Delete budget" aria-label={`Delete ${budget.category} budget`} onClick={() => { if (window.confirm(`Remove the ${budget.category} budget?`)) onDelete(budget.id); }}>×</button></div></div>
-          <div className="budget-spent">{formatMoney(spent, currency)}<span> spent</span></div>
+          <div className="budget-spent">{displaySpent === null ? 'Rate unavailable' : formatMoney(displaySpent, currency)}<span> spent</span></div>
           <div className="progress-track large-progress"><div className={`progress-fill ${state === 'over' ? 'over-budget' : state === 'near' ? 'near-budget' : ''}`} style={{ width: `${Math.min(percentage, 100)}%` }} /></div>
-          <div className="budget-card-foot"><span>{formatMoney(budget.limit, currency)} monthly limit</span><strong className={remaining < 0 ? 'over-text' : ''}>{remaining < 0 ? `${formatMoney(Math.abs(remaining), currency)} over` : `${formatMoney(remaining, currency)} left`}</strong></div>
+          <div className="budget-card-foot"><span>{displayLimit === null ? 'Rate unavailable' : formatMoney(displayLimit, currency)} monthly limit</span><strong className={remaining !== null && remaining < 0 ? 'over-text' : ''}>{displayRemaining === null ? 'Rate unavailable' : displayRemaining < 0 ? `${formatMoney(Math.abs(displayRemaining), currency)} over` : `${formatMoney(displayRemaining, currency)} left`}</strong></div>
           {percentage >= 80 && <p className={`budget-message ${state}`}>{state === 'over' ? 'You’ve reached this budget. Take a moment before spending more.' : 'You’re getting close to this month’s limit.'}</p>}
         </article>;
       })}
@@ -61,7 +72,8 @@ export function BudgetsPage({ budgets, transactions, currency, onSave, onDelete 
     {editing !== undefined && <Modal title={editing ? 'Edit budget' : 'Create budget'} onClose={() => setEditing(undefined)} onSubmit={submit} submitLabel={editing ? 'Save changes' : 'Create budget'}>
       <div className="form-grid">
         <label className="form-field full-width">Category<input name="category" list="budget-categories" required maxLength={40} placeholder="e.g. Groceries" defaultValue={editing?.category} onChange={() => setCategoryError('')} autoFocus /><datalist id="budget-categories">{budgetCategories.map((category) => <option key={category} value={category} />)}</datalist>{categoryError && <span className="form-error" role="alert">{categoryError}</span>}</label>
-        <label className="form-field full-width">Monthly limit<input name="limit" type="number" min="0.01" step="0.01" required placeholder="0.00" defaultValue={editing?.limit} /><span className="field-hint">If a budget for that category already exists, its limit will be updated.</span></label>
+        <label className="form-field">Monthly limit<input name="limit" type="number" min="0.01" step="0.01" required placeholder="0.00" defaultValue={editing?.limit} /><span className="field-hint">If a budget for that category already exists, its limit will be updated.</span></label>
+        <label className="form-field">Budget currency<select name="currency" required defaultValue={editing?.currency ?? currency}>{currencyOptions.map((option) => <option key={option.code} value={option.code}>{option.code}</option>)}</select></label>
       </div>
     </Modal>}
   </>;

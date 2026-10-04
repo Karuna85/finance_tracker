@@ -10,6 +10,7 @@ export interface Transaction {
   accountId: string;
   date: string;
   notes: string;
+  currency: string;
 }
 
 export interface Account {
@@ -17,12 +18,14 @@ export interface Account {
   name: string;
   type: AccountType;
   openingBalance: number;
+  currency: string;
 }
 
 export interface Budget {
   id: string;
   category: string;
   limit: number;
+  currency: string;
 }
 
 export interface FinanceData {

@@ -1,19 +1,21 @@
 import { useState, type FormEvent } from 'react';
 import { Modal } from '../../components/Modal';
-import { accountBalance, formatMoney } from '../../components/finance';
+import { accountBalance, convertCurrency, currencyOptions, formatMoney } from '../../components/finance';
+import type { ExchangeRates } from '../../services/exchangeRates';
 import type { Account, AccountType, Transaction } from '../../types/finance';
 
 interface Props {
   accounts: Account[];
   transactions: Transaction[];
   currency: string;
+  rates: ExchangeRates;
   onSave: (account: Omit<Account, 'id'> & { id?: string }) => void;
   onDelete: (id: string) => void;
 }
 
 const accountTypes: AccountType[] = ['checking', 'savings', 'cash', 'credit'];
 
-export function AccountsPage({ accounts, transactions, currency, onSave, onDelete }: Props) {
+export function AccountsPage({ accounts, transactions, currency, rates, onSave, onDelete }: Props) {
   const [editing, setEditing] = useState<Account | null | undefined>(undefined);
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -26,6 +28,7 @@ export function AccountsPage({ accounts, transactions, currency, onSave, onDelet
       name: String(form.get('name')).trim(),
       type: String(form.get('type')) as AccountType,
       openingBalance,
+      currency: String(form.get('currency')),
     });
     setEditing(undefined);
   }
@@ -37,14 +40,24 @@ export function AccountsPage({ accounts, transactions, currency, onSave, onDelet
     </div>
     <section className="account-card-grid">
       {accounts.map((account) => {
-        const balance = accountBalance(account, transactions);
+        const balance = accountBalance(account, transactions, rates);
+        const convertedBalance = balance === null ? null : convertCurrency(balance, account.currency, currency, rates);
+        const convertedOpeningBalance = convertCurrency(account.openingBalance, account.currency, currency, rates);
         const linkedTransactions = transactions.filter((item) => item.accountId === account.id).length;
         return <article className="panel account-card" key={account.id}>
           <div className="account-card-top"><span className={`account-mark ${account.type}`} aria-hidden="true">{account.type === 'savings' ? '✳' : account.type === 'credit' ? '▤' : account.type === 'cash' ? '$' : '◈'}</span><span className="account-type">{account.type}</span><button className="icon-button" aria-label={`Edit ${account.name}`} title="Edit account" onClick={() => setEditing(account)}>✎</button></div>
           <h2>{account.name}</h2>
           <p className="account-balance-label">Current balance</p>
-          <strong className="account-balance">{formatMoney(balance, currency)}</strong>
-          <div className="account-card-foot"><span>Starting balance</span><span>{formatMoney(account.openingBalance, currency)}</span></div>
+          <strong className="account-balance">{convertedBalance === null ? 'Rate unavailable' : formatMoney(convertedBalance, currency)}</strong>
+          <div className="account-card-foot">
+            <span>Starting balance</span>
+            <span className="starting-balance-values">
+              {convertedOpeningBalance === null
+                ? 'Rate unavailable'
+                : formatMoney(convertedOpeningBalance, currency)}
+              {account.currency !== currency && <small>{formatMoney(account.openingBalance, account.currency)} {account.currency}</small>}
+            </span>
+          </div>
           <div className="account-card-actions">{linkedTransactions
             ? <span className="muted">{linkedTransactions} linked {linkedTransactions === 1 ? 'transaction' : 'transactions'}</span>
             : <button className="text-button danger-text" onClick={() => { if (window.confirm(`Delete the ${account.name} account?`)) onDelete(account.id); }}>Remove account</button>}
@@ -58,6 +71,7 @@ export function AccountsPage({ accounts, transactions, currency, onSave, onDelet
       <div className="form-grid">
         <label className="form-field full-width">Account name<input name="name" required maxLength={50} placeholder="e.g. Holiday savings" defaultValue={editing?.name} autoFocus /></label>
         <label className="form-field">Account type<select name="type" defaultValue={editing?.type ?? 'checking'}>{accountTypes.map((type) => <option key={type} value={type}>{type[0].toUpperCase() + type.slice(1)}</option>)}</select></label>
+        <label className="form-field">Account currency<select name="currency" required defaultValue={editing?.currency ?? currency}>{currencyOptions.map((option) => <option key={option.code} value={option.code}>{option.code}</option>)}</select></label>
         <label className="form-field">Starting balance<input name="openingBalance" type="number" step="0.01" required defaultValue={editing?.openingBalance ?? 0} /><span className="field-hint">Use a negative value for a balance owed.</span></label>
       </div>
     </Modal>}

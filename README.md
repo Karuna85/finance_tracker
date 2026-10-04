@@ -30,8 +30,13 @@ The Pages workflow builds the Vite app using the repository path automatically. 
 - Create and update monthly category budgets, with current-month spending progress and over-budget alerts.
 - Review a monthly report, including cash flow, category breakdowns, highlights, and a spreadsheet-friendly CSV export.
 - Change the display currency and retain your changes in browser local storage.
+- Keep account, transaction, and budget amounts in their original currencies; convert summaries with the latest available daily reference rates.
 
 The first launch includes example data so the dashboard is immediately useful. Without Supabase configuration, finance data stays in browser storage on this device; clearing browser storage removes it.
+
+## Currency conversion
+
+The currency selector controls the display currency. Accounts, transactions, and budgets each keep their own currency, while totals and reports convert using the latest available daily reference rates from Frankfurter (ECB reference data). Rates are cached in this browser for offline use and refreshed periodically. These are indicative daily reference rates, not real-time trading or guaranteed transaction rates. If rates are missing, cross-currency totals display as unavailable rather than showing an unconverted amount.
 
 ## Supabase cloud storage and username accounts
 

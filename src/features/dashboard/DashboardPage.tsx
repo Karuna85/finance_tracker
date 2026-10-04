@@ -1,21 +1,30 @@
 import type { Account, Budget, PageName, Transaction } from '../../types/finance';
-import { accountBalance, formatMoney, monthKey, monthLabel, currentMonthKey, shortDate } from '../../components/finance';
+import { accountBalance, convertCurrency, formatMoney, formatConvertedMoney, sumConvertedTransactions, monthKey, monthLabel, currentMonthKey, shortDate } from '../../components/finance';
+import type { ExchangeRates } from '../../services/exchangeRates';
 
 interface Props {
   transactions: Transaction[];
   accounts: Account[];
   budgets: Budget[];
   currency: string;
+  rates: ExchangeRates;
   onNavigate: (page: PageName) => void;
   onNewTransaction: () => void;
 }
 
-export function DashboardPage({ transactions, accounts, budgets, currency, onNavigate, onNewTransaction }: Props) {
+export function DashboardPage({ transactions, accounts, budgets, currency, rates, onNavigate, onNewTransaction }: Props) {
   const thisMonth = currentMonthKey();
   const monthTransactions = transactions.filter((item) => monthKey(item.date) === thisMonth);
-  const income = monthTransactions.filter((item) => item.type === 'income').reduce((sum, item) => sum + item.amount, 0);
-  const expenses = monthTransactions.filter((item) => item.type === 'expense').reduce((sum, item) => sum + item.amount, 0);
-  const totalBalance = accounts.reduce((sum, account) => sum + accountBalance(account, transactions), 0);
+  const income = sumConvertedTransactions(monthTransactions, currency, rates, 'income');
+  const expenses = sumConvertedTransactions(monthTransactions, currency, rates, 'expense');
+  const accountBalances = accounts.map((account) => {
+    const balance = accountBalance(account, transactions, rates);
+    return balance === null ? null : convertCurrency(balance, account.currency, currency, rates);
+  });
+  const totalBalance = accountBalances.some((balance) => balance === null)
+    ? null
+    : accountBalances.reduce<number>((sum, balance) => sum + (balance ?? 0), 0);
+  const availableToSave = income === null || expenses === null ? null : income - expenses;
   const sortedTransactions = [...transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
 
   const chartMonths = Array.from({ length: 6 }, (_, index) => {
@@ -26,7 +35,7 @@ export function DashboardPage({ transactions, accounts, budgets, currency, onNav
     const monthItems = transactions.filter((item) => monthKey(item.date) === key && item.type === 'expense');
     return {
       label: new Intl.DateTimeFormat(undefined, { month: 'short' }).format(date),
-      total: monthItems.reduce((sum, item) => sum + item.amount, 0),
+      total: sumConvertedTransactions(monthItems, currency, rates, 'expense') ?? 0,
     };
   });
   const maxBar = Math.max(...chartMonths.map((month) => month.total), 1);
@@ -38,10 +47,10 @@ export function DashboardPage({ transactions, accounts, budgets, currency, onNav
         <button className="button button-primary" onClick={onNewTransaction}><span aria-hidden="true">＋</span> Add transaction</button>
       </div>
       <section className="metric-grid" aria-label="Monthly summary">
-        <article className="metric-card balance-card"><div className="metric-label">Total balance <span className="metric-icon">↗</span></div><div className="metric-value">{formatMoney(totalBalance, currency)}</div><div className="metric-footnote">Across {accounts.length} {accounts.length === 1 ? 'account' : 'accounts'}</div></article>
-        <article className="metric-card"><div className="metric-label">Income this month <span className="metric-icon income-icon">↓</span></div><div className="metric-value">{formatMoney(income, currency)}</div><div className="metric-footnote">Money in this month</div></article>
-        <article className="metric-card"><div className="metric-label">Spending this month <span className="metric-icon expense-icon">↑</span></div><div className="metric-value">{formatMoney(expenses, currency)}</div><div className="metric-footnote">Money out this month</div></article>
-        <article className="metric-card"><div className="metric-label">Available to save <span className="metric-icon savings-icon">✳</span></div><div className="metric-value">{formatMoney(income - expenses, currency)}</div><div className="metric-footnote">Income minus spending</div></article>
+        <article className="metric-card balance-card"><div className="metric-label">Total balance <span className="metric-icon">↗</span></div><div className="metric-value">{totalBalance === null ? 'Rate unavailable' : formatMoney(totalBalance, currency)}</div><div className="metric-footnote">Across {accounts.length} {accounts.length === 1 ? 'account' : 'accounts'}</div></article>
+        <article className="metric-card"><div className="metric-label">Income this month <span className="metric-icon income-icon">↓</span></div><div className="metric-value">{income === null ? 'Rate unavailable' : formatMoney(income, currency)}</div><div className="metric-footnote">Money in this month</div></article>
+        <article className="metric-card"><div className="metric-label">Spending this month <span className="metric-icon expense-icon">↑</span></div><div className="metric-value">{expenses === null ? 'Rate unavailable' : formatMoney(expenses, currency)}</div><div className="metric-footnote">Money out this month</div></article>
+        <article className="metric-card"><div className="metric-label">Available to save <span className="metric-icon savings-icon">✳</span></div><div className="metric-value">{availableToSave === null ? 'Rate unavailable' : formatMoney(availableToSave, currency)}</div><div className="metric-footnote">Income minus spending</div></article>
       </section>
 
       <section className="content-grid">
@@ -62,10 +71,13 @@ export function DashboardPage({ transactions, accounts, budgets, currency, onNav
           <div className="panel-heading"><div><h2>Budget check-in</h2><p>Your monthly category limits</p></div><button className="text-button" onClick={() => onNavigate('Budgets')}>See all <span aria-hidden="true">→</span></button></div>
           {budgets.length ? <div className="budget-list">
             {budgets.slice(0, 5).map((budget) => {
-              const spent = monthTransactions.filter((item) => item.type === 'expense' && item.category === budget.category).reduce((sum, item) => sum + item.amount, 0);
-              const percentage = budget.limit > 0 ? (spent / budget.limit) * 100 : 0;
+              const spentItems = monthTransactions.filter((item) => item.type === 'expense' && item.category === budget.category);
+              const spent = sumConvertedTransactions(spentItems, budget.currency, rates, 'expense');
+              const displaySpent = spent === null ? null : convertCurrency(spent, budget.currency, currency, rates);
+              const displayLimit = convertCurrency(budget.limit, budget.currency, currency, rates);
+              const percentage = spent !== null && budget.limit > 0 ? (spent / budget.limit) * 100 : 0;
               return <div className="budget-row" key={budget.id}>
-                <div className="budget-row-top"><span>{budget.category}</span><span>{formatMoney(spent, currency)} <span className="muted">/ {formatMoney(budget.limit, currency)}</span></span></div>
+                <div className="budget-row-top"><span>{budget.category}</span><span>{displaySpent === null || displayLimit === null ? 'Rate unavailable' : <>{formatMoney(displaySpent, currency)} <span className="muted">/ {formatMoney(displayLimit, currency)}</span></>}</span></div>
                 <div className="progress-track"><div className={`progress-fill ${percentage >= 100 ? 'over-budget' : percentage >= 80 ? 'near-budget' : ''}`} style={{ width: `${Math.min(percentage, 100)}%` }} /></div>
               </div>;
             })}
@@ -83,7 +95,7 @@ export function DashboardPage({ transactions, accounts, budgets, currency, onNav
                 <span className={`activity-symbol ${transaction.type}`}>{transaction.type === 'income' ? '↓' : '↑'}</span>
                 <div className="activity-description"><strong>{transaction.description}</strong><span>{transaction.category} · {account?.name ?? 'Account removed'}</span></div>
                 <span className="activity-date">{shortDate(transaction.date)}</span>
-                <strong className={`activity-amount ${transaction.type}`}>{transaction.type === 'income' ? '+' : '−'}{formatMoney(transaction.amount, currency)}</strong>
+                <strong className={`activity-amount ${transaction.type}`}>{transaction.type === 'income' ? '+' : '−'}{formatConvertedMoney(transaction.amount, transaction.currency, currency, rates)}</strong>
               </div>;
             })}
           </div> : <div className="empty-state"><p>No activity yet.</p><button className="text-button" onClick={onNewTransaction}>Add your first transaction</button></div>}
@@ -91,10 +103,10 @@ export function DashboardPage({ transactions, accounts, budgets, currency, onNav
         <article className="panel accounts-panel">
           <div className="panel-heading"><div><h2>Your accounts</h2><p>Balances across your money</p></div><button className="text-button" onClick={() => onNavigate('Accounts')}>Manage <span aria-hidden="true">→</span></button></div>
           {accounts.length ? <div className="account-list">
-            {accounts.slice(0, 4).map((account) => <div className="account-row" key={account.id}>
+            {accounts.slice(0, 4).map((account, index) => <div className="account-row" key={account.id}>
               <span className={`account-mark ${account.type}`} aria-hidden="true">{account.type === 'savings' ? '✳' : account.type === 'credit' ? '▤' : account.type === 'cash' ? '$' : '◈'}</span>
               <div className="account-description"><strong>{account.name}</strong><span>{account.type}</span></div>
-              <strong>{formatMoney(accountBalance(account, transactions), currency)}</strong>
+              <strong>{accountBalances[index] === null ? 'Rate unavailable' : formatMoney(accountBalances[index] ?? 0, currency)}</strong>
             </div>)}
           </div> : <div className="empty-state"><p>No accounts added.</p><button className="text-button" onClick={() => onNavigate('Accounts')}>Add an account</button></div>}
         </article>

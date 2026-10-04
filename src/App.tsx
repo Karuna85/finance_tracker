@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useFinanceData } from './hooks/useFinanceData';
+import { useExchangeRates } from './hooks/useExchangeRates';
+import { currencyOptions } from './components/finance';
 import { DashboardPage } from './features/dashboard/DashboardPage';
 import { TransactionsPage } from './features/transactions/TransactionsPage';
 import { AccountsPage } from './features/accounts/AccountsPage';
@@ -14,16 +16,6 @@ const navigation: { name: PageName; symbol: string; group: string }[] = [
   { name: 'Accounts', symbol: '▤', group: 'MANAGE' },
   { name: 'Budgets', symbol: '◎', group: 'MANAGE' },
   { name: 'Reports', symbol: '▥', group: 'MANAGE' },
-];
-
-const currencyOptions = [
-  { code: 'USD', label: 'US Dollar ($)' },
-  { code: 'CAD', label: 'Canadian Dollar (CA$)' },
-  { code: 'EUR', label: 'Euro (€)' },
-  { code: 'GBP', label: 'British Pound (£)' },
-  { code: 'AUD', label: 'Australian Dollar (A$)' },
-  { code: 'INR', label: 'Indian Rupee (₹)' },
-  { code: 'JPY', label: 'Japanese Yen (¥)' },
 ];
 
 export default function App() {
@@ -53,6 +45,8 @@ export default function App() {
     deleteBudget,
     setCurrency,
   } = useFinanceData();
+  const { snapshot: rateSnapshot, status: rateStatus, error: rateError } = useExchangeRates();
+  const exchangeRates = rateSnapshot?.rates ?? {};
   const [page, setPage] = useState<PageName>('Overview');
   const [quickAdd, setQuickAdd] = useState(false);
   const today = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date());
@@ -94,16 +88,17 @@ export default function App() {
       </aside>
 
       <main className="main-area">
-        <header className="topbar"><div className="breadcrumb"><span>My finances</span><span aria-hidden="true">/</span><strong>{page}</strong></div><div className="topbar-actions"><span className="today-label">{today}</span><label className="currency-picker"><span className="sr-only">Display currency</span><select aria-label="Display currency" value={data.currency} onChange={(event) => setCurrency(event.target.value)}>{currencyOptions.map((currency) => <option key={currency.code} value={currency.code}>{currency.code}</option>)}</select></label><CloudAccess configured={cloudConfigured} authLoading={authLoading} session={session} status={cloudStatus} authError={authError} authMessage={authMessage} onSignIn={signIn} onSignUp={signUp} onSignOut={signOut} /></div></header>
+        <header className="topbar"><div className="breadcrumb"><span>My finances</span><span aria-hidden="true">/</span><strong>{page}</strong></div><div className="topbar-actions"><span className="today-label">{today}</span><label className="currency-picker"><span className="sr-only">Display currency</span><select aria-label="Display currency" value={data.currency} onChange={(event) => setCurrency(event.target.value)}>{currencyOptions.map((currency) => <option key={currency.code} value={currency.code}>{currency.code}</option>)}</select></label><span className={`rate-indicator ${rateStatus === 'error' ? 'rate-error' : ''}`} title={rateError || (rateSnapshot ? `Reference rates for ${rateSnapshot.date}` : 'Loading daily reference rates')}>{rateSnapshot ? `Rates · ${rateSnapshot.date}` : rateStatus === 'loading' ? 'Loading rates…' : 'Rates unavailable'}</span><CloudAccess configured={cloudConfigured} authLoading={authLoading} session={session} status={cloudStatus} authError={authError} authMessage={authMessage} onSignIn={signIn} onSignUp={signUp} onSignOut={signOut} /></div></header>
         <div className="page-content">
           {!cloudConfigured && <div className="cloud-setup-notice"><strong>Cloud sync is not configured.</strong><span>Add your Supabase URL and anon key to <code>.env.local</code>, run the database migration, and restart the app. <a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer">Open Supabase</a></span></div>}
           {saveError && <div className="save-warning" role="alert"><span>!</span>{saveError}</div>}
-          {page === 'Overview' && <DashboardPage transactions={data.transactions} accounts={data.accounts} budgets={data.budgets} currency={data.currency} onNavigate={setPage} onNewTransaction={startTransaction} />}
-          {page === 'Transactions' && <TransactionsPage transactions={data.transactions} accounts={data.accounts} currency={data.currency} onSave={upsertTransaction} onDelete={deleteTransaction} onManageAccounts={() => setPage('Accounts')} quickAdd={quickAdd} onQuickAddOpened={finishQuickAdd} />}
-          {page === 'Accounts' && <AccountsPage accounts={data.accounts} transactions={data.transactions} currency={data.currency} onSave={upsertAccount} onDelete={deleteAccount} />}
-          {page === 'Budgets' && <BudgetsPage budgets={data.budgets} transactions={data.transactions} currency={data.currency} onSave={upsertBudget} onDelete={deleteBudget} />}
-          {page === 'Reports' && <ReportsPage transactions={data.transactions} accounts={data.accounts} currency={data.currency} />}
-          <footer className="page-footer">Your finances stay on this device. Take care of your future self. <span>✳</span></footer>
+          {rateError && <div className="rate-notice" role="status">{rateSnapshot ? `Could not refresh reference rates; using rates from ${rateSnapshot.date}.` : 'Exchange rates could not be loaded. Converted totals are temporarily unavailable.'} {rateError}</div>}
+          {page === 'Overview' && <DashboardPage transactions={data.transactions} accounts={data.accounts} budgets={data.budgets} currency={data.currency} rates={exchangeRates} onNavigate={setPage} onNewTransaction={startTransaction} />}
+          {page === 'Transactions' && <TransactionsPage transactions={data.transactions} accounts={data.accounts} currency={data.currency} rates={exchangeRates} onSave={upsertTransaction} onDelete={deleteTransaction} onManageAccounts={() => setPage('Accounts')} quickAdd={quickAdd} onQuickAddOpened={finishQuickAdd} />}
+          {page === 'Accounts' && <AccountsPage accounts={data.accounts} transactions={data.transactions} currency={data.currency} rates={exchangeRates} onSave={upsertAccount} onDelete={deleteAccount} />}
+          {page === 'Budgets' && <BudgetsPage budgets={data.budgets} transactions={data.transactions} currency={data.currency} rates={exchangeRates} onSave={upsertBudget} onDelete={deleteBudget} />}
+          {page === 'Reports' && <ReportsPage transactions={data.transactions} accounts={data.accounts} currency={data.currency} rates={exchangeRates} />}
+          <footer className="page-footer">{rateSnapshot ? `Conversions use daily reference rates dated ${rateSnapshot.date}; these are indicative, not live trading quotes.` : 'Foreign-currency conversions require daily reference rates.'} <span>✳</span></footer>
         </div>
       </main>
       {migrationRequired && <BrowserImportDialog hasCloudData={migrationHasCloudData} hasLocalData={migrationHasLocalData} error={saveError} onImport={importBrowserData} onKeepCloud={keepCloudData} onStartEmpty={startWithEmptyCloudData} />}

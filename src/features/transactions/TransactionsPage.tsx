@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '../../components/Modal';
-import { formatMoney, monthKey, shortDate } from '../../components/finance';
+import { currencyOptions, formatMoney, formatConvertedMoney, monthKey, shortDate } from '../../components/finance';
+import type { ExchangeRates } from '../../services/exchangeRates';
 import type { Account, Transaction, TransactionType } from '../../types/finance';
 
 interface Props {
   transactions: Transaction[];
   accounts: Account[];
   currency: string;
+  rates: ExchangeRates;
   onSave: (transaction: Omit<Transaction, 'id'> & { id?: string }) => void;
   onDelete: (id: string) => void;
   onManageAccounts: () => void;
@@ -16,7 +18,7 @@ interface Props {
 
 const categories = ['Bills', 'Dining', 'Education', 'Entertainment', 'Freelance', 'Gifts', 'Groceries', 'Healthcare', 'Housing', 'Salary', 'Shopping', 'Transport', 'Travel', 'Utilities'];
 
-export function TransactionsPage({ transactions, accounts, currency, onSave, onDelete, onManageAccounts, quickAdd, onQuickAddOpened }: Props) {
+export function TransactionsPage({ transactions, accounts, currency, rates, onSave, onDelete, onManageAccounts, quickAdd, onQuickAddOpened }: Props) {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [monthFilter, setMonthFilter] = useState('all');
@@ -46,6 +48,7 @@ export function TransactionsPage({ transactions, accounts, currency, onSave, onD
       type: String(form.get('type')) as TransactionType,
       category: String(form.get('category')).trim(),
       accountId: String(form.get('accountId')),
+      currency: String(form.get('currency')),
       date: String(form.get('date')),
       notes: String(form.get('notes')).trim(),
     });
@@ -76,7 +79,7 @@ export function TransactionsPage({ transactions, accounts, currency, onSave, onD
                 <td><span className="category-pill">{item.category}</span></td>
                 <td>{account?.name ?? <span className="muted">Account removed</span>}</td>
                 <td>{shortDate(item.date)}</td>
-                <td className={`align-right table-amount ${item.type}`}>{item.type === 'income' ? '+' : '−'}{formatMoney(item.amount, currency)}</td>
+                <td className={`align-right table-amount ${item.type}`}>{item.type === 'income' ? '+' : '−'}{formatConvertedMoney(item.amount, item.currency, currency, rates)}{item.currency !== currency && <small className="original-amount">{formatMoney(item.amount, item.currency)}</small>}</td>
                 <td><div className="row-actions"><button className="icon-button" title="Edit transaction" aria-label={`Edit ${item.description}`} onClick={() => setEditing(item)}>✎</button><button className="icon-button delete-action" title="Delete transaction" aria-label={`Delete ${item.description}`} onClick={() => { if (window.confirm(`Delete “${item.description}”?`)) onDelete(item.id); }}>×</button></div></td>
               </tr>;
             })}
@@ -92,6 +95,7 @@ export function TransactionsPage({ transactions, accounts, currency, onSave, onD
         <label className="form-field">Amount<input name="amount" type="number" min="0.01" step="0.01" required placeholder="0.00" defaultValue={editing?.amount} /></label>
         <label className="form-field">Category<input name="category" list="transaction-categories" required maxLength={40} placeholder="Choose or type a category" defaultValue={editing?.category} /><datalist id="transaction-categories">{categories.map((category) => <option key={category} value={category} />)}</datalist></label>
         <label className="form-field">Account<select name="accountId" required defaultValue={editing?.accountId ?? accounts[0]?.id}>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+        <label className="form-field">Transaction currency<select name="currency" required defaultValue={editing?.currency ?? accounts[0]?.currency ?? currency}>{currencyOptions.map((option) => <option key={option.code} value={option.code}>{option.code}</option>)}</select></label>
         <label className="form-field">Date<input name="date" type="date" required defaultValue={editing?.date ?? new Date().toLocaleDateString('en-CA')} /></label>
         <label className="form-field full-width">Notes <span className="optional-label">Optional</span><input name="notes" maxLength={160} placeholder="Add a note" defaultValue={editing?.notes} /></label>
       </div>
